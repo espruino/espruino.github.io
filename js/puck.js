@@ -52,18 +52,22 @@ var Puck = (function() {
   var NORDIC_RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
   var CHUNKSIZE = 16;
 
-function ab2str(buf) {
-  return String.fromCharCode.apply(null, new Uint8Array(buf));
-}
-
-function str2ab(str) {
-  var buf = new ArrayBuffer(str.length);
-  var bufView = new Uint8Array(buf);
-  for (var i=0, strLen=str.length; i<strLen; i++) {
-    bufView[i] = str.charCodeAt(i);
+  function log(s) {
+    if (puck.log) puck.log(s);
+  }  
+  
+  function ab2str(buf) {
+    return String.fromCharCode.apply(null, new Uint8Array(buf));
   }
-  return buf;
-}
+  
+  function str2ab(str) {
+    var buf = new ArrayBuffer(str.length);
+    var bufView = new Uint8Array(buf);
+    for (var i=0, strLen=str.length; i<strLen; i++) {
+      bufView[i] = str.charCodeAt(i);
+    }
+    return buf;
+  }
 
 
   function connect(callback) {
@@ -81,57 +85,52 @@ function str2ab(str) {
     var txInProgress = false;
 
     connection.close = function() {
-    if (btServer) {
-      btServer.disconnect();
-      btServer = undefined;
-      txCharacteristic = undefined;
-      rxCharacteristic = undefined;
-      if (connection.isOpen) {
-        connection.isOpen = false;
-        connection.emit('close');       
-      } else callback(null);      
-    }
-  };
- 
-function log(s) {
-if (puck.log) puck.log(s);
-}
-
-    connection.write = function(data, callback) {
-    if (!txCharacteristic) return;
-    txDataQueue.push({data:data,callback:callback});
-    if (!txInProgress) writeChunk();
-
-    function writeChunk() {
-      var chunk;
-      
-      var txItem = txDataQueue[0];
-      if (txItem.data.length <= CHUNKSIZE) {
-        chunk = txItem.data;
-        txItem.data = undefined;
-      } else {
-        chunk = txItem.data.substr(0,CHUNKSIZE);
-        txItem.data = txItem.data.substr(CHUNKSIZE);
+      if (btServer) {
+        btServer.disconnect();
+        btServer = undefined;
+        txCharacteristic = undefined;
+        rxCharacteristic = undefined;
+        if (connection.isOpen) {
+          connection.isOpen = false;
+          connection.emit('close');       
+        } else callback(null);      
       }
-      txInProgress = true;
-      log("BT> Sending "+ JSON.stringify(chunk));
-      txCharacteristic.writeValue(str2ab(chunk)).then(function() {
-        log("BT> Sent");
-        if (!txItem.data) {
-          txDataQueue.shift(); // remove this element
-          txItem.callback();
+    };
+   
+    connection.write = function(data, callback) {
+      if (!txCharacteristic) return;
+      txDataQueue.push({data:data,callback:callback});
+      if (!txInProgress) writeChunk();
+  
+      function writeChunk() {
+        var chunk;
+        
+        var txItem = txDataQueue[0];
+        if (txItem.data.length <= CHUNKSIZE) {
+          chunk = txItem.data;
+          txItem.data = undefined;
+        } else {
+          chunk = txItem.data.substr(0,CHUNKSIZE);
+          txItem.data = txItem.data.substr(CHUNKSIZE);
         }
-        txInProgress = false;        
-        if (txDataQueue.length)
-          writeChunk();
-      }).catch(function(error) {
-       log('BT> SEND ERROR: ' + error);
-       txDataQueue = [];
-       connection.close();
-      });
-    }
-
-  };
+        txInProgress = true;
+        log("BT> Sending "+ JSON.stringify(chunk));
+        txCharacteristic.writeValue(str2ab(chunk)).then(function() {
+          log("BT> Sent");
+          if (!txItem.data) {
+            txDataQueue.shift(); // remove this element
+            txItem.callback();
+          }
+          txInProgress = false;        
+          if (txDataQueue.length)
+            writeChunk();
+        }).catch(function(error) {
+         log('BT> SEND ERROR: ' + error);
+         txDataQueue = [];
+         connection.close();
+        });
+      }
+    };
 
     navigator.bluetooth.requestDevice({filters:[{services:[ NORDIC_SERVICE ]}]}).then(function(device) {
       log('BT>  Device Name:       ' + device.name);
