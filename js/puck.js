@@ -132,7 +132,14 @@ var Puck = (function() {
       }
     };
 
-    navigator.bluetooth.requestDevice({filters:[{services:[ NORDIC_SERVICE ]}]}).then(function(device) {
+    // Ideally we could do {filters:[{services:[ NORDIC_SERVICE ]}]}, but it seems that
+    // on MacOS there are some problems requesting based on service...
+    // https://bugs.chromium.org/p/chromium/issues/detail?id=630598
+    navigator.bluetooth.requestDevice({
+        filters:[
+          { namePrefix: 'Puck.js' },
+          { namePrefix: 'Espruino' }
+        ], optionalServices: [ NORDIC_SERVICE ]}).then(function(device) {
       log('BT>  Device Name:       ' + device.name);
       log('BT>  Device ID:         ' + device.id);
       log('BT>  Device UUIDs:      ' + device.uuids.join('\n' + ' '.repeat(21)));
