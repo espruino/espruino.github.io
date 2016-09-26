@@ -1,4 +1,4 @@
-/* 
+/*
 --------------------------------------------------------------------
 Puck.js BLE Interface library
                       Copyright 2016 Gordon Williams (gw@pur3.co.uk)
@@ -19,7 +19,7 @@ Execute expression and return the result:
     alert(d);
   });
 
-Or write and wait for a result - this will return all characters, 
+Or write and wait for a result - this will return all characters,
 including echo and linefeed from the REPL so you may want to send
 `echo(0)` and use `console.log` when doing this.
 
@@ -54,12 +54,12 @@ var Puck = (function() {
 
   function log(s) {
     if (puck.log) puck.log(s);
-  }  
-  
+  }
+
   function ab2str(buf) {
     return String.fromCharCode.apply(null, new Uint8Array(buf));
   }
-  
+
   function str2ab(str) {
     var buf = new ArrayBuffer(str.length);
     var bufView = new Uint8Array(buf);
@@ -74,7 +74,9 @@ var Puck = (function() {
     var connection = {
       on : function(evt,cb) { this["on"+evt]=cb; },
       emit : function(evt,data) { if (this["on"+evt]) this["on"+evt](data); },
-      isOpen : false
+      isOpen : false,
+      isOpening : true,
+      txInProgress : false
     };
     var btServer = undefined;
     var btService;
@@ -82,7 +84,6 @@ var Puck = (function() {
     var txCharacteristic;
     var rxCharacteristic;
     var txDataQueue = [];
-    var txInProgress = false;
 
     connection.close = function() {
       if (btServer) {
@@ -90,21 +91,21 @@ var Puck = (function() {
         btServer = undefined;
         txCharacteristic = undefined;
         rxCharacteristic = undefined;
+        connection.isOpening = false;
         if (connection.isOpen) {
           connection.isOpen = false;
-          connection.emit('close');       
-        } else callback(null);      
+          connection.emit('close');
+        } else callback(null);
       }
     };
-   
+
     connection.write = function(data, callback) {
-      if (!txCharacteristic) return;
-      txDataQueue.push({data:data,callback:callback});
-      if (!txInProgress) writeChunk();
-  
+      if (data) txDataQueue.push({data:data,callback:callback});
+      if (connection.isOpen && !connection.txInProgress) writeChunk();
+
       function writeChunk() {
         var chunk;
-        
+        if (!txDataQueue.length) return;
         var txItem = txDataQueue[0];
         if (txItem.data.length <= CHUNKSIZE) {
           chunk = txItem.data;
@@ -113,7 +114,7 @@ var Puck = (function() {
           chunk = txItem.data.substr(0,CHUNKSIZE);
           txItem.data = txItem.data.substr(CHUNKSIZE);
         }
-        txInProgress = true;
+        connection.txInProgress = true;
         log("BT> Sending "+ JSON.stringify(chunk));
         txCharacteristic.writeValue(str2ab(chunk)).then(function() {
           log("BT> Sent");
@@ -121,9 +122,8 @@ var Puck = (function() {
             txDataQueue.shift(); // remove this element
             txItem.callback();
           }
-          txInProgress = false;        
-          if (txDataQueue.length)
-            writeChunk();
+          connection.txInProgress = false;
+          writeChunk();
         }).catch(function(error) {
          log('BT> SEND ERROR: ' + error);
          txDataQueue = [];
@@ -170,11 +170,13 @@ var Puck = (function() {
       txCharacteristic = characteristic;
       log("BT> TX characteristic:"+JSON.stringify(txCharacteristic));
     }).then(function() {
-      txDataQueue = [];
-      txInProgress = false;
+      connection.txInProgress = false;
       connection.isOpen = true;
+      connection.isOpening = false;
       callback(connection);
       connection.emit('open');
+      // if we had any writes queued, do them now
+      connection.write();
     }).catch(function(error) {
       log('BT> ERROR: ' + error);
       connection.close();
@@ -183,17 +185,37 @@ var Puck = (function() {
   };
 
   // ----------------------------------------------------------
-  // convenience function...
   var connection;
-  function write(data, callback) {
+  /* convenience function... Write data, call the callback with data:
+       callbackNewline = false => if no new data received for ~0.5 sec
+       callbackNewline = true => after a newline */
+  function write(data, callback, callbackNewline) {
+    var cbTimeout;
     function onWritten() {
+      isWriting = false;
       if (callback) {
+        if (callbackNewline) {
+          connection.cb = function(d) {
+            var newLineIdx = connection.received.indexOf("\n");
+            if (newLineIdx>=0) {
+              var l = connection.received.substr(0,newLineIdx);
+              connection.received = connection.received.substr(newLineIdx+1);
+              connection.cb = undefined;
+              if (cbTimeout) clearTimeout(cbTimeout);
+              cbTimeout = undefined;
+              callback(l);
+            }
+          };
+        }
         // wait for any received data if we have a callback...
-        var maxTime = 10;
-        setTimeout(function timeout() {
-          if (connection.hadData && maxTime--) {
-            setTimeout(timeout, 250);
+        var waitTime = 10;
+        var maxTime = waitTime;
+        cbTimeout = setTimeout(function timeout() {
+          cbTimeout = undefined;
+          if ((connection.hadData || maxTime==waitTime) && maxTime--) {
+            cbTimeout = setTimeout(timeout, 250);
           } else {
+            connection.cb = undefined;
             callback(connection.received);
             connection.received = "";
           }
@@ -202,23 +224,25 @@ var Puck = (function() {
       } else connection.received = "";
     }
 
-    if (connection && connection.isOpen) {
-      connection.received = "";
+    if (connection && (connection.isOpen || connection.isOpening)) {
+      if (!connection.txInProgress) connection.received = "";
       return connection.write(data, onWritten);
     }
 
-    connection = connect(function(puck) {     
+    connection = connect(function(puck) {
       if (!puck) {
         connection = undefined;
         callback(null);
+        return;
       }
       connection.received = "";
-      connection.on('data', function(d) { 
-        connection.received += d; 
+      connection.on('data', function(d) {
+        connection.received += d;
         connection.hadData = true;
+        if (connection.cb)  connection.cb(d);
       });
-      connection.write(data, onWritten);
     });
+    connection.write(data, onWritten);
   }
 
   // ----------------------------------------------------------
@@ -227,7 +251,11 @@ var Puck = (function() {
     log : function(s) {console.log(s)},
     connect : connect,
     write : write,
-    eval : function(expr, cb) { write('\x10Bluetooth.print(JSON.stringify('+expr+'))\n', cb); }
+    eval : function(expr, cb) {
+      write('\x10Bluetooth.println(JSON.stringify('+expr+'))\n', function(d) {
+        if (d!==null) cb(JSON.parse(d)); else cb(null);
+      }, true);
+    }
   };
   return puck;
 })();
