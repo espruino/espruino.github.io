@@ -203,7 +203,8 @@ var Puck = (function() {
               connection.cb = undefined;
               if (cbTimeout) clearTimeout(cbTimeout);
               cbTimeout = undefined;
-              callback(l);
+              if (callback)
+                callback(l);
             }
           };
         }
@@ -216,7 +217,8 @@ var Puck = (function() {
             cbTimeout = setTimeout(timeout, 250);
           } else {
             connection.cb = undefined;
-            callback(connection.received);
+            if (callback)
+              callback(connection.received);
             connection.received = "";
           }
           connection.hadData = false;
@@ -241,6 +243,9 @@ var Puck = (function() {
         connection.hadData = true;
         if (connection.cb)  connection.cb(d);
       });
+      connection.on('close', function(d) {
+        connection = undefined;
+      });
     });
     connection.write(data, onWritten);
   }
@@ -248,13 +253,33 @@ var Puck = (function() {
   // ----------------------------------------------------------
 
   var puck = {
-    log : function(s) {console.log(s)},
+    /// Are we writing debug information?
+    debug : false,
+    /// Used internally to write log information - you can replace this with your own function
+    log : function(s) { if (debug) console.log(s)},
+    /** Connect to a new device - this creates a separate
+     connection to the one `write` and `eval` use. */
     connect : connect,
+    /// Write to Puck.js and call back when the data is written.  Creates a connection if it doesn't exist
     write : write,
+    /// Evaluate an expression and call cb with the result. Creates a connection if it doesn't exist
     eval : function(expr, cb) {
       write('\x10Bluetooth.println(JSON.stringify('+expr+'))\n', function(d) {
         if (d!==null) cb(JSON.parse(d)); else cb(null);
       }, true);
+    },
+    /// Did `write` and `eval` manage to create a connection?
+    isConnected = function() {
+      return connection!==undefined;
+    },
+    /// get the connection used by `write` and `eval`
+    getConnection = function() {
+      return connection;
+    },
+    /// Close the connection used by `write` and `eval`
+    close : function() {
+      if (connection)
+        connection.close();
     }
   };
   return puck;
