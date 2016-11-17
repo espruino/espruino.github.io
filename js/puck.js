@@ -269,11 +269,11 @@ var Puck = (function() {
       }, true);
     },
     /// Did `write` and `eval` manage to create a connection?
-    isConnected = function() {
+    isConnected : function() {
       return connection!==undefined;
     },
     /// get the connection used by `write` and `eval`
-    getConnection = function() {
+    getConnection : function() {
       return connection;
     },
     /// Close the connection used by `write` and `eval`
