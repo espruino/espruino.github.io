@@ -42,10 +42,6 @@ Or more advanced usage with control of the connection
 */
 var Puck = (function() {
   if (typeof navigator == "undefined") return; // not running in a web browser
-  if (!navigator.bluetooth) {
-    console.log("No navigator.bluetooth - Web Bluetooth not enabled");
-    return;
-  }
 
   var NORDIC_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
   var NORDIC_TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -71,6 +67,11 @@ var Puck = (function() {
 
 
   function connect(callback) {
+    if (!navigator.bluetooth) {
+      window.alert("Web Bluetooth isn't enabled in your browser!");
+      return;
+    }
+
     var connection = {
       on : function(evt,cb) { this["on"+evt]=cb; },
       emit : function(evt,data) { if (this["on"+evt]) this["on"+evt](data); },
@@ -86,16 +87,18 @@ var Puck = (function() {
     var txDataQueue = [];
 
     connection.close = function() {
+      connection.isOpening = false;
+      if (connection.isOpen) {
+        connection.isOpen = false;
+        connection.emit('close');
+      } else {
+        if (callback) callback(null);
+      }
       if (btServer) {
         btServer.disconnect();
         btServer = undefined;
         txCharacteristic = undefined;
         rxCharacteristic = undefined;
-        connection.isOpening = false;
-        if (connection.isOpen) {
-          connection.isOpen = false;
-          connection.emit('close');
-        } else callback(null);
       }
     };
 
@@ -234,7 +237,7 @@ var Puck = (function() {
     connection = connect(function(puck) {
       if (!puck) {
         connection = undefined;
-        callback(null);
+        if (callback) callback(null);
         return;
       }
       connection.received = "";
@@ -256,7 +259,7 @@ var Puck = (function() {
     /// Are we writing debug information?
     debug : false,
     /// Used internally to write log information - you can replace this with your own function
-    log : function(s) { if (debug) console.log(s)},
+    log : function(s) { if (this.debug) console.log(s)},
     /** Connect to a new device - this creates a separate
      connection to the one `write` and `eval` use. */
     connect : connect,
