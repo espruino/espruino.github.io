@@ -145,7 +145,8 @@ var Puck = (function() {
         ], optionalServices: [ NORDIC_SERVICE ]}).then(function(device) {
       log('BT>  Device Name:       ' + device.name);
       log('BT>  Device ID:         ' + device.id);
-      log('BT>  Device UUIDs:      ' + device.uuids.join('\n' + ' '.repeat(21)));
+      // Chrome on Android 5 doesn't seem to have device.uuids?
+      //log('BT>  Device UUIDs:      ' + device.uuids.join('\n' + ' '.repeat(21)));
       device.addEventListener('gattserverdisconnected', function() {
         log("BT> Disconnected (gattserverdisconnected)");
         connection.close();
