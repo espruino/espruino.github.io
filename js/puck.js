@@ -123,7 +123,8 @@ var Puck = (function() {
           log("BT> Sent");
           if (!txItem.data) {
             txDataQueue.shift(); // remove this element
-            txItem.callback();
+            if (txItem.callback)
+              txItem.callback();
           }
           connection.txInProgress = false;
           writeChunk();
