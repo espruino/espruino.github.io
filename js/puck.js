@@ -41,15 +41,41 @@ Or more advanced usage with control of the connection
 
 */
 var Puck = (function() {
-  if (typeof navigator == "undefined") return; // not running in a web browser
+  var errorStr, errorURL;
+  if (typeof navigator == "undefined") return;
+
+  function checkIfSupported() {
+    // Hack for windows
+    if (navigator.platform.indexOf("Win")>=0 &&
+        (navigator.userAgent.indexOf("Chrome/54")>=0 ||
+         navigator.userAgent.indexOf("Chrome/55")>=0 ||
+         navigator.userAgent.indexOf("Chrome/56")>=0)
+        ) {
+      console.warn("Chrome <56 in Windows has navigator.bluetooth but it's not implemented properly");
+      if (confirm("Web Bluetooth on Windows is not yet available.\nPlease click Ok to see other options for using Web Bluetooth"))
+        window.location = "https://www.espruino.com/Puck.js+Quick+Start";
+      return false;
+    }
+    if (navigator.bluetooth) return true;
+    console.warn("No Web Bluetooth on this platform");
+    var iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (iOS) {
+      if (confirm("To use Web Bluetooth on iOS you'll need the WebBLE App.\nnPlease click Ok to go to the App Store and download it."))
+        window.location = "https://itunes.apple.com/us/app/webble/id1193531073";
+    } else {
+      if (confirm("This Web Browser doesn't support Web Bluetooth.\nPlease click Ok to see instructions for enabling it."))
+        window.location = "https://www.espruino.com/Puck.js+Quick+Start";
+    }
+    return false;
+  }
 
   var NORDIC_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
   var NORDIC_TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
   var NORDIC_RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
   var CHUNKSIZE = 16;
 
-  function log(s) {
-    if (puck.log) puck.log(s);
+  function log(level, s) {
+    if (puck.log) puck.log(level, s);
   }
 
   function ab2str(buf) {
@@ -67,10 +93,7 @@ var Puck = (function() {
 
 
   function connect(callback) {
-    if (!navigator.bluetooth) {
-      window.alert("Web Bluetooth isn't enabled in your browser!");
-      return;
-    }
+    if (!checkIfSupported()) return;
 
     var connection = {
       on : function(evt,cb) { this["on"+evt]=cb; },
@@ -118,9 +141,9 @@ var Puck = (function() {
           txItem.data = txItem.data.substr(CHUNKSIZE);
         }
         connection.txInProgress = true;
-        log("BT> Sending "+ JSON.stringify(chunk));
+        log(2, "Sending "+ JSON.stringify(chunk));
         txCharacteristic.writeValue(str2ab(chunk)).then(function() {
-          log("BT> Sent");
+          log(3, "Sent");
           if (!txItem.data) {
             txDataQueue.shift(); // remove this element
             if (txItem.callback)
@@ -129,41 +152,39 @@ var Puck = (function() {
           connection.txInProgress = false;
           writeChunk();
         }).catch(function(error) {
-         log('BT> SEND ERROR: ' + error);
+         log(1, 'SEND ERROR: ' + error);
          txDataQueue = [];
          connection.close();
         });
       }
     };
 
-    // Ideally we could do {filters:[{services:[ NORDIC_SERVICE ]}]}, but it seems that
-    // on MacOS there are some problems requesting based on service...
-    // https://bugs.chromium.org/p/chromium/issues/detail?id=630598
     navigator.bluetooth.requestDevice({
         filters:[
           { namePrefix: 'Puck.js' },
-          { namePrefix: 'Espruino' }
+          { namePrefix: 'Espruino' },
+          { services: [ NORDIC_SERVICE ] }
         ], optionalServices: [ NORDIC_SERVICE ]}).then(function(device) {
-      log('BT>  Device Name:       ' + device.name);
-      log('BT>  Device ID:         ' + device.id);
+      log(1, 'Device Name:       ' + device.name);
+      log(1, 'Device ID:         ' + device.id);
       // Was deprecated: Should use getPrimaryServices for this in future
       //log('BT>  Device UUIDs:      ' + device.uuids.join('\n' + ' '.repeat(21)));
       device.addEventListener('gattserverdisconnected', function() {
-        log("BT> Disconnected (gattserverdisconnected)");
+        log(1, "Disconnected (gattserverdisconnected)");
         connection.close();
       });
       return device.gatt.connect();
     }).then(function(server) {
-      log("BT> Connected");
+      log(1, "Connected");
       btServer = server;
       return server.getPrimaryService(NORDIC_SERVICE);
     }).then(function(service) {
-      log("BT> Got service");
+      log(2, "Got service");
       btService = service;
       return btService.getCharacteristic(NORDIC_RX);
     }).then(function (characteristic) {
       rxCharacteristic = characteristic;
-      log("BT> RX characteristic:"+JSON.stringify(rxCharacteristic));
+      log(2, "RX characteristic:"+JSON.stringify(rxCharacteristic));
       rxCharacteristic.addEventListener('characteristicvaluechanged', function(event) {
         var value = event.target.value.buffer; // get arraybuffer
         connection.emit('data', ab2str(value));
@@ -173,7 +194,7 @@ var Puck = (function() {
       return btService.getCharacteristic(NORDIC_TX);
     }).then(function (characteristic) {
       txCharacteristic = characteristic;
-      log("BT> TX characteristic:"+JSON.stringify(txCharacteristic));
+      log(2, "TX characteristic:"+JSON.stringify(txCharacteristic));
     }).then(function() {
       connection.txInProgress = false;
       connection.isOpen = true;
@@ -183,7 +204,7 @@ var Puck = (function() {
       // if we had any writes queued, do them now
       connection.write();
     }).catch(function(error) {
-      log('BT> ERROR: ' + error);
+      log(1, 'ERROR: ' + error);
       connection.close();
     });
     return connection;
@@ -195,6 +216,8 @@ var Puck = (function() {
        callbackNewline = false => if no new data received for ~0.5 sec
        callbackNewline = true => after a newline */
   function write(data, callback, callbackNewline) {
+    if (!checkIfSupported()) return;
+
     var cbTimeout;
     function onWritten() {
       isWriting = false;
@@ -258,10 +281,10 @@ var Puck = (function() {
   // ----------------------------------------------------------
 
   var puck = {
-    /// Are we writing debug information?
-    debug : false,
+    /// Are we writing debug information? 0 is no, 1 is some, 2 is more, 3 is all.
+    debug : 1,
     /// Used internally to write log information - you can replace this with your own function
-    log : function(s) { if (this.debug) console.log(s)},
+    log : function(level, s) { if (level <= this.debug) console.log("<BLE> "+s)},
     /** Connect to a new device - this creates a separate
      connection to the one `write` and `eval` use. */
     connect : connect,
@@ -269,6 +292,8 @@ var Puck = (function() {
     write : write,
     /// Evaluate an expression and call cb with the result. Creates a connection if it doesn't exist
     eval : function(expr, cb) {
+      if (!checkIfSupported()) return;
+
       write('\x10Bluetooth.println(JSON.stringify('+expr+'))\n', function(d) {
         if (d!==null) cb(JSON.parse(d)); else cb(null);
       }, true);
