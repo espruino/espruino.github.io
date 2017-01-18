@@ -60,7 +60,7 @@ var Puck = (function() {
     console.warn("No Web Bluetooth on this platform");
     var iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     if (iOS) {
-      if (confirm("To use Web Bluetooth on iOS you'll need the WebBLE App.\nnPlease click Ok to go to the App Store and download it."))
+      if (confirm("To use Web Bluetooth on iOS you'll need the WebBLE App.\nPlease click Ok to go to the App Store and download it."))
         window.location = "https://itunes.apple.com/us/app/webble/id1193531073";
     } else {
       if (confirm("This Web Browser doesn't support Web Bluetooth.\nPlease click Ok to see instructions for enabling it."))
