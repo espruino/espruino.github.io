@@ -41,8 +41,9 @@ Or more advanced usage with control of the connection
 
 */
 var Puck = (function() {
-  var errorStr, errorURL;
   if (typeof navigator == "undefined") return;
+  var isBusy;
+  var queue = [];
 
   function checkIfSupported() {
     // Hack for windows
@@ -91,6 +92,14 @@ var Puck = (function() {
     return buf;
   }
 
+  function handleQueue() {
+    if (!queue.length) return;
+    var q = queue.shift();
+    log(3,"Executing "+JSON.stringify(q)+" from queue");
+    if (q.type=="eval") puck.eval(q.expr, q.cb);
+    else if (q.type=="write") puck.write(q.data, q.callback, q.callbackNewline);
+    else log(1,"Unknown queue item "+JSON.stringify(q));
+  }
 
   function connect(callback) {
     if (!checkIfSupported()) return;
@@ -199,6 +208,8 @@ var Puck = (function() {
       connection.txInProgress = false;
       connection.isOpen = true;
       connection.isOpening = false;
+      isbusy = false;
+      queue = [];
       callback(connection);
       connection.emit('open');
       // if we had any writes queued, do them now
@@ -213,53 +224,61 @@ var Puck = (function() {
   // ----------------------------------------------------------
   var connection;
   /* convenience function... Write data, call the callback with data:
-       callbackNewline = false => if no new data received for ~0.5 sec
+       callbackNewline = false => if no new data received for ~0.2 sec
        callbackNewline = true => after a newline */
   function write(data, callback, callbackNewline) {
     if (!checkIfSupported()) return;
+    
+    if (isBusy) {
+      log(3, "Busy - adding Puck.write to queue");
+      queue.push({type:"write", data:data, callback:callback, callbackNewline:callbackNewline});
+      return;
+    }
 
     var cbTimeout;
     function onWritten() {
-      isWriting = false;
-      if (callback) {
-        if (callbackNewline) {
-          connection.cb = function(d) {
-            var newLineIdx = connection.received.indexOf("\n");
-            if (newLineIdx>=0) {
-              var l = connection.received.substr(0,newLineIdx);
-              connection.received = connection.received.substr(newLineIdx+1);
-              connection.cb = undefined;
-              if (cbTimeout) clearTimeout(cbTimeout);
-              cbTimeout = undefined;
-              if (callback)
-                callback(l);
-            }
-          };
-        }
-        // wait for any received data if we have a callback...
-        var waitTime = 10;
-        var maxTime = waitTime;
-        cbTimeout = setTimeout(function timeout() {
-          cbTimeout = undefined;
-          if ((connection.hadData || maxTime==waitTime) && maxTime--) {
-            cbTimeout = setTimeout(timeout, 250);
-          } else {
+      if (callbackNewline) {
+        connection.cb = function(d) {
+          var newLineIdx = connection.received.indexOf("\n");
+          if (newLineIdx>=0) {
+            var l = connection.received.substr(0,newLineIdx);
+            connection.received = connection.received.substr(newLineIdx+1);
             connection.cb = undefined;
+            if (cbTimeout) clearTimeout(cbTimeout);
+            cbTimeout = undefined;
             if (callback)
-              callback(connection.received);
-            connection.received = "";
+              callback(l);          
+            isBusy = false;
+            handleQueue();    
           }
-          connection.hadData = false;
-        }, 250);
-      } else connection.received = "";
+        };
+      }
+      // wait for any received data if we have a callback...
+      var waitTime = 20;
+      var maxTime = waitTime;
+      cbTimeout = setTimeout(function timeout() {
+        cbTimeout = undefined;
+        if ((connection.hadData || maxTime==waitTime) && maxTime--) {
+          cbTimeout = setTimeout(timeout, 100);
+        } else {
+          connection.cb = undefined;
+          if (callback)
+            callback(connection.received);
+          isBusy = false;
+          handleQueue();    
+          connection.received = "";
+        }
+        connection.hadData = false;
+      }, 100);      
     }
 
     if (connection && (connection.isOpen || connection.isOpening)) {
       if (!connection.txInProgress) connection.received = "";
+      isBusy = true;      
       return connection.write(data, onWritten);
     }
 
-    connection = connect(function(puck) {
+    connection = connect(function(puck) {      
       if (!puck) {
         connection = undefined;
         if (callback) callback(null);
@@ -274,8 +293,9 @@ var Puck = (function() {
       connection.on('close', function(d) {
         connection = undefined;
       });
-    });
-    connection.write(data, onWritten);
+      isBusy = true;
+      connection.write(data, onWritten);
+    });    
   }
 
   // ----------------------------------------------------------
@@ -293,9 +313,18 @@ var Puck = (function() {
     /// Evaluate an expression and call cb with the result. Creates a connection if it doesn't exist
     eval : function(expr, cb) {
       if (!checkIfSupported()) return;
-
+      if (isBusy) {
+        log(3, "Busy - adding Puck.eval to queue");
+        queue.push({type:"eval", expr:expr, cb:cb});
+        return;
+      }
       write('\x10Bluetooth.println(JSON.stringify('+expr+'))\n', function(d) {
-        if (d!==null) cb(JSON.parse(d)); else cb(null);
+        try {
+          var json = JSON.parse(d);
+          cb(json);
+        } catch (e) {
+          cb(null, "Unable to decode "+JSON.stringify(d)+", got "+e.toString());
+        }
       }, true);
     },
     /// Did `write` and `eval` manage to create a connection?
