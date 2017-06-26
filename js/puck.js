@@ -327,6 +327,14 @@ var Puck = (function() {
         }
       }, true);
     },
+    /// Write the current time to the Puck
+    setTime : function(cb) {
+      var d = new Date();
+      var cmd = 'setTime('+(d.getTime()/1000)+');';
+      // in 1v93 we have timezones too
+      cmd += 'if (E.setTimeZone) E.setTimeZone('+d.getTimezoneOffset()/-60+');\n';
+      write(cmd, cb);
+    },
     /// Did `write` and `eval` manage to create a connection?
     isConnected : function() {
       return connection!==undefined;
