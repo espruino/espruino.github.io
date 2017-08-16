@@ -196,7 +196,9 @@ var Puck = (function() {
       log(2, "RX characteristic:"+JSON.stringify(rxCharacteristic));
       rxCharacteristic.addEventListener('characteristicvaluechanged', function(event) {
         var value = event.target.value.buffer; // get arraybuffer
-        connection.emit('data', ab2str(value));
+        var str = ab2str(value);
+        log(3, "Received "+JSON.stringify(str));
+        connection.emit('data', str);
       });
       return rxCharacteristic.startNotifications();
     }).then(function() {
@@ -247,38 +249,42 @@ var Puck = (function() {
             if (cbTimeout) clearTimeout(cbTimeout);
             cbTimeout = undefined;
             if (callback)
-              callback(l);          
+              callback(l);
             isBusy = false;
-            handleQueue();    
+            handleQueue();
           }
         };
       }
       // wait for any received data if we have a callback...
-      var waitTime = 20;
-      var maxTime = waitTime;
+      var maxTime = 30; // 3 sec - Max time we wait in total, even if getting data
+      var dataWaitTime = 3;
+      var maxDataTime = dataWaitTime; // 300ms - max time we wait after having received data
       cbTimeout = setTimeout(function timeout() {
         cbTimeout = undefined;
-        if ((connection.hadData || maxTime==waitTime) && maxTime--) {
+        if (maxTime) maxTime--;
+        if (maxDataTime) maxDataTime--;
+        if (connection.hadData) maxDataTime=dataWaitTime;
+        if (maxDataTime && maxTime) {
           cbTimeout = setTimeout(timeout, 100);
         } else {
           connection.cb = undefined;
           if (callback)
             callback(connection.received);
           isBusy = false;
-          handleQueue();    
+          handleQueue();
           connection.received = "";
         }
         connection.hadData = false;
-      }, 100);      
+      }, 100);
     }
 
     if (connection && (connection.isOpen || connection.isOpening)) {
       if (!connection.txInProgress) connection.received = "";
-      isBusy = true;      
+      isBusy = true;
       return connection.write(data, onWritten);
     }
 
-    connection = connect(function(puck) {      
+    connection = connect(function(puck) {
       if (!puck) {
         connection = undefined;
         if (callback) callback(null);
@@ -323,6 +329,7 @@ var Puck = (function() {
           var json = JSON.parse(d);
           cb(json);
         } catch (e) {
+          log(1, "Unable to decode "+JSON.stringify(d)+", got "+e.toString());
           cb(null, "Unable to decode "+JSON.stringify(d)+", got "+e.toString());
         }
       }, true);
