@@ -230,7 +230,7 @@ var Puck = (function() {
        callbackNewline = true => after a newline */
   function write(data, callback, callbackNewline) {
     if (!checkIfSupported()) return;
-    
+
     if (isBusy) {
       log(3, "Busy - adding Puck.write to queue");
       queue.push({type:"write", data:data, callback:callback, callbackNewline:callbackNewline});
@@ -256,7 +256,7 @@ var Puck = (function() {
         };
       }
       // wait for any received data if we have a callback...
-      var maxTime = 30; // 3 sec - Max time we wait in total, even if getting data
+      var maxTime = 300; // 30 sec - Max time we wait in total, even if getting data
       var dataWaitTime = 3;
       var maxDataTime = dataWaitTime; // 300ms - max time we wait after having received data
       cbTimeout = setTimeout(function timeout() {
@@ -301,7 +301,7 @@ var Puck = (function() {
       });
       isBusy = true;
       connection.write(data, onWritten);
-    });    
+    });
   }
 
   // ----------------------------------------------------------
@@ -354,6 +354,21 @@ var Puck = (function() {
     close : function() {
       if (connection)
         connection.close();
+    },
+    /** Utility function to fade out everything on the webpage and display
+    a window saying 'Click to continue'. When clicked it'll disappear and
+    'callback' will be called. This is useful because you can't initialise
+    Web Bluetooth unless you're doing so in response to a user input.*/
+    modal : function(callback) {
+      var e = document.createElement('div');
+      e.style = 'position:absolute;top:0px;left:0px;right:0px;bottom:0px;opacity:0.5;z-index:100;background:black;';
+      e.innerHTML = '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family: Sans-Serif;font-size:400%;color:white;">Click to Continue...</div>';
+      e.onclick = function(evt) {
+        callback();
+        evt.preventDefault();
+        document.body.removeChild(e);
+      };
+      document.body.appendChild(e);
     }
   };
   return puck;
