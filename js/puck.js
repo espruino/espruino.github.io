@@ -171,6 +171,11 @@ var Puck = (function() {
     navigator.bluetooth.requestDevice({
         filters:[
           { namePrefix: 'Puck.js' },
+          { namePrefix: 'Pixl.js' },
+          { namePrefix: 'MDBT42Q' },
+          { namePrefix: 'RuuviTag' },
+          { namePrefix: 'iTracker' },
+          { namePrefix: 'Thingy' },
           { namePrefix: 'Espruino' },
           { services: [ NORDIC_SERVICE ] }
         ], optionalServices: [ NORDIC_SERVICE ]}).then(function(device) {
