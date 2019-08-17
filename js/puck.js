@@ -215,7 +215,7 @@ var Puck = (function() {
       connection.txInProgress = false;
       connection.isOpen = true;
       connection.isOpening = false;
-      isbusy = false;
+      isBusy = false;
       queue = [];
       callback(connection);
       connection.emit('open');
