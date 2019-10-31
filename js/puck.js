@@ -40,8 +40,23 @@ Or more advanced usage with control of the connection
   });
 
 */
-var Puck = (function() {
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        // AMD. Register as an anonymous module.
+        define([], factory);
+    } else if (typeof module === 'object' && module.exports) {
+        // Node. Does not work with strict CommonJS, but
+        // only CommonJS-like environments that support module.exports,
+        // like Node.
+        module.exports = factory();
+    } else {
+        // Browser globals (root is window)
+        root.Puck = factory();
+    }
+}(typeof self !== 'undefined' ? self : this, function () {
+
   if (typeof navigator == "undefined") return;
+
   var isBusy;
   var queue = [];
 
@@ -117,6 +132,7 @@ var Puck = (function() {
     var txCharacteristic;
     var rxCharacteristic;
     var txDataQueue = [];
+    var flowControlXOFF = false;
 
     connection.close = function() {
       connection.isOpening = false;
@@ -139,6 +155,10 @@ var Puck = (function() {
       if (connection.isOpen && !connection.txInProgress) writeChunk();
 
       function writeChunk() {
+        if (flowControlXOFF) { // flow control - try again later
+          setTimeout(writeChunk, 50);
+          return;
+        }
         var chunk;
         if (!txDataQueue.length) return;
         var txItem = txDataQueue[0];
@@ -200,10 +220,28 @@ var Puck = (function() {
       rxCharacteristic = characteristic;
       log(2, "RX characteristic:"+JSON.stringify(rxCharacteristic));
       rxCharacteristic.addEventListener('characteristicvaluechanged', function(event) {
-        var value = event.target.value.buffer; // get arraybuffer
-        var str = ab2str(value);
-        log(3, "Received "+JSON.stringify(str));
-        connection.emit('data', str);
+        var dataview = event.target.value;
+        var data = ab2str(dataview.buffer);
+        if (puck.flowControl) {
+          for (var i=0;i<data.length;i++) {
+            var ch = data.charCodeAt(i);
+            var remove = true;
+            if (ch==19) {// XOFF
+              log(2,"XOFF received => pause upload");
+              flowControlXOFF = true;
+            } else if (ch==17) {// XON
+              log(2,"XON received => resume upload");
+              flowControlXOFF = false;
+            } else
+              remove = false;
+            if (remove) { // remove character
+              data = data.substr(0,i-1)+data.substr(i+1);
+              i--;
+            }
+          }
+        }
+        log(3, "Received "+JSON.stringify(data));
+        connection.emit('data', data);
       });
       return rxCharacteristic.startNotifications();
     }).then(function() {
@@ -262,8 +300,8 @@ var Puck = (function() {
       }
       // wait for any received data if we have a callback...
       var maxTime = 300; // 30 sec - Max time we wait in total, even if getting data
-      var dataWaitTime = 3;
-      var maxDataTime = dataWaitTime; // 300ms - max time we wait after having received data
+      var dataWaitTime = callbackNewline ? 100/*10 sec if waiting for newline*/ : 3/*300ms*/;
+      var maxDataTime = dataWaitTime; // max time we wait after having received data
       cbTimeout = setTimeout(function timeout() {
         cbTimeout = undefined;
         if (maxTime) maxTime--;
@@ -314,6 +352,8 @@ var Puck = (function() {
   var puck = {
     /// Are we writing debug information? 0 is no, 1 is some, 2 is more, 3 is all.
     debug : 1,
+    /// Should we use flow control? Default is true
+    flowControl : true,
     /// Used internally to write log information - you can replace this with your own function
     log : function(level, s) { if (level <= this.debug) console.log("<BLE> "+s)},
     /** Connect to a new device - this creates a separate
@@ -377,4 +417,4 @@ var Puck = (function() {
     }
   };
   return puck;
-})();
+}));
