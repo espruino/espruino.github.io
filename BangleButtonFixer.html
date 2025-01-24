@@ -1,0 +1,46 @@
+<html><head>
+  <style>
+  </style>
+  <title>Bangle.js 2 Button Fixer</title>
+</head><body>
+  <h1>Bangle.js 2 Button Fixer</h1>
+  <p>Some Bangle.js 2 can get into a boot loop if their button becomes low resistance (due to water ingress or similar).
+This webpage attempts to connect to a Bangle.js 2 and uploads code that will enable something called 'lowResistanceFix'
+which causes the Bangle to do extra checks to ensure the button isn't pressed even if it is high resistance. The
+Bangle.js firmware must be at least 2v22 for this to work.</p>
+  <p><b>Usage:</b> Click the button below, then when you see your Bangle appear in the list of devices that pops up,
+choose it and click 'Connect' immediately. If this fails, try and time your clicking of the 'Connect' button to exactly
+the point that the blocky bootloader text on the Bangle's screen disappears.</p>
+  <p><button>Connect to Bangle</button></p>
+  <code id="log"></code>
+
+  <script src="js/puck.js"></script>
+
+  <script type="text/javascript">
+    var button = document.getElementsByTagName('button')[0];
+
+    function log(txt) {
+      let log = document.getElementById('log');
+      log.innerText += txt+"\n";
+    }
+    Puck.log = function(level,txt) {
+      console.log(level+": "+txt);
+      if (level==1) log(txt);
+    };
+
+    button.addEventListener("click", function() {  
+      Puck.write("E.kickWatchdog();\nBangle.setOptions({lowResistanceFix:1})\n", function(response) {
+        if (response===null) {
+          log("!!! Connection failed - please try again");
+          return;
+        }
+        log("===> Written code to temporarity enable");
+        Puck.write("{let s=require('Storage').readJSON('setting.json',1);s.options.lowResistanceFix=1;require('Storage').writeJSON('setting.json',s);load()}\n", function() {
+          log("===> Written code to permanently enable");
+          log("===> Disconnecting");
+          Puck.close();
+        }); 
+      });
+    });
+  </script>
+</body></html>
